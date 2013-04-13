@@ -247,6 +247,8 @@ namespace bea{
         bea::exception ret;
         
         const char* exception_string = ToCString(exception);
+        ret.text = exception_string;
+
         v8::Handle<v8::Message> message = try_catch.Message();
         if (message.IsEmpty()) {
             // V8 didn't provide any extra information about this error; just
@@ -264,7 +266,6 @@ namespace bea{
             // Print line of source code.
             v8::String::Utf8Value sourceline(message->GetSourceLine());
             const char* sourceline_string = ToCString(sourceline);
-            ret.text = sourceline_string;
             
             printf("%s\n", sourceline_string);
             // Print wavy underline (GetUnderline is deprecated).
@@ -358,6 +359,8 @@ namespace bea{
 	{
 		
 		lastError.lineNumber = -1;
+        
+        Locker v8Locker;
 		HandleScope handle_scope;
 
 		if (globalTemplate.IsEmpty()){
