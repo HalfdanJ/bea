@@ -50,10 +50,15 @@ namespace bea{
 		std::cout << "Logged: " << *value << std::endl;
 		return v8::Undefined();
 	}
+    
+    const char* ToCString(const v8::String::Utf8Value& value)
+    {
+        return *value ? *value : "<string conversion failed>";
+    }
 
 	//////////////////////////////////////////////////////////////////////////
 
-	std::string BeaContext::lastError; 
+	exception BeaContext::lastError;
 	boost::filesystem::path _BeaScript::scriptPath;
 
 	
@@ -181,9 +186,11 @@ namespace bea{
 	//Execute a string of script
 	v8::Handle<v8::Value> _BeaScript::execute( v8::Handle<v8::String> script, v8::Handle<v8::String> fileName )
 	{
+        lastError.lineNumber = -1;
+        
 		HandleScope scope;
 		TryCatch try_catch;
-		v8::Handle<v8::Value> result; 
+		v8::Handle<v8::Value> result;   
 
 		// Compile the script and check for errors.
 		v8::Handle<v8::Script> compiled_script = v8::Script::Compile(script, fileName);
@@ -202,12 +209,81 @@ namespace bea{
 
 		return scope.Close(result);
 	}
+    
+    v8::Handle<v8::Value> _BeaScript::execute( v8::Handle<v8::String> script)
+	{
+        lastError.lineNumber = -1;
+
+		HandleScope scope;
+		TryCatch try_catch;
+		v8::Handle<v8::Value> result;
+        
+        printf("%s",*v8::String::Utf8Value(script));
+        
+		// Compile the script and check for errors.
+		v8::Handle<v8::Script> compiled_script = v8::Script::Compile(script);
+		if (compiled_script.IsEmpty()) {
+			reportError(try_catch);
+            
+			return result;
+		}
+        
+		// Run the script!
+		result = compiled_script->Run();
+        
+		if (result.IsEmpty()) {
+			reportError(try_catch);
+			return result;
+		}
+        
+		return scope.Close(result);
+	}
 
 	//Report the error from an exception, store it in lastError
 	void BeaContext::reportError(TryCatch& try_catch){
-		lastError = *v8::String::Utf8Value(try_catch.Exception());
-		if (m_logger)
-			m_logger(*v8::String::Utf8Value(try_catch.StackTrace()));
+        v8::HandleScope handle_scope;
+        v8::String::Utf8Value exception(try_catch.Exception());
+        
+        bea::exception ret;
+        
+        const char* exception_string = ToCString(exception);
+        v8::Handle<v8::Message> message = try_catch.Message();
+        if (message.IsEmpty()) {
+            // V8 didn't provide any extra information about this error; just
+            // print the exception.
+            printf("%s\n", exception_string);
+            ret.lineNumber = -1;
+        } else {
+            // Print (filename):(line number): (message).
+            v8::String::Utf8Value filename(message->GetScriptResourceName());
+            const char* filename_string = ToCString(filename);
+            int linenum = message->GetLineNumber();
+            ret.lineNumber = linenum;
+            
+            printf("%s:%i: %s\n", filename_string, linenum, exception_string);
+            // Print line of source code.
+            v8::String::Utf8Value sourceline(message->GetSourceLine());
+            const char* sourceline_string = ToCString(sourceline);
+            ret.text = sourceline_string;
+            
+            printf("%s\n", sourceline_string);
+            // Print wavy underline (GetUnderline is deprecated).
+            int start = message->GetStartColumn();
+            ret.startColumn = start;
+            
+            for (int i = 0; i < start; i++) {
+                printf(" ");
+            }
+            int end = message->GetEndColumn();
+            ret.endColumn = end;
+            
+            for (int i = start; i < end; i++) {
+                printf("^");
+            }
+            printf("\n");
+        }
+        
+        lastError = ret;
 	}
 
 	v8::Handle<v8::Value> _BeaScript::executeScript(const char* fileName){
@@ -215,7 +291,7 @@ namespace bea{
 		scriptPath = boost::filesystem::system_complete(fileName);
 
 		Global::scriptDir = scriptPath.parent_path().string();
-
+        
 		Context::Scope context_scope(m_context);
 
 		HandleScope scope;
@@ -225,9 +301,31 @@ namespace bea{
 
 		if (!str.IsEmpty()){
 			v = execute(str, bea::Convert<std::string>::ToJS(fileName)->ToString());
-		}
+		} else {
+            printf("bea error: Could not execute %s\n",fileName);
+        }
 
 		return scope.Close(v);
+	}
+    
+    bool _BeaScript::executeSource(const char* source){
+        Context::Scope context_scope(m_context);
+
+		HandleScope scope;
+		v8::Handle<v8::String> str = v8::String::New(source);
+        
+		v8::Handle<v8::Value> v;
+        
+		if (!str.IsEmpty()){
+            printf("execute\n");
+			v = execute(str);
+		} else {
+            printf("bea error: Could not execute source %s\n",source);
+            return false;
+        }
+        
+		return true;
+
 	}
 
 	//Initialize the javascript context and load a script file into it
@@ -256,10 +354,10 @@ namespace bea{
 	}
 
 	//Initialize the javascript context and expose the methods in exposer
-	bool _BeaScript::init()
+	bool _BeaScript::init(const char* loaderPath)
 	{
 		
-		lastError = "";
+		lastError.lineNumber = -1;
 		HandleScope handle_scope;
 
 		if (globalTemplate.IsEmpty()){
@@ -282,7 +380,7 @@ namespace bea{
 		
 		expose();
 
-		executeScript("./loader.js");
+		executeScript(loaderPath);
 		CloneObject(m_context->Global(), globalSandbox);
 
 
@@ -315,7 +413,8 @@ namespace bea{
 
 	//Call a javascript function, store the found function in a local cache for faster access
 	v8::Handle<v8::Value> BeaContext::call(const char *fnName, int argc, v8::Handle<v8::Value> argv[]){
-		
+        lastError.lineNumber = -1;
+
 		HandleScope scope;
 		Context::Scope context_scope(m_context);
 
@@ -332,7 +431,7 @@ namespace bea{
 			if (!fnv->IsFunction()) {
 				std::stringstream strstr;
 				strstr << "Error: " << fnName << " is not a function";
-				lastError = strstr.str();
+//				lastError = strstr.str();
 				return v8::False();
 			} else {
 

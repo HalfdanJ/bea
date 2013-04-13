@@ -6,6 +6,14 @@
 #include <v8.h>
 
 namespace bea{
+    
+    struct exception {
+        int lineNumber;
+        std::string text;
+        int startColumn;
+        int endColumn;
+        
+    };
 
 	//Thin wrapper around a v8 context
 	//Allows calling functions, holds a map of cached js functions
@@ -15,7 +23,7 @@ namespace bea{
 	class BeaContext{
 
 	public:
-		static std::string lastError;
+		static exception lastError;
 		static logCallback	m_logger;
 		static yieldCallback m_yielder;
 		static std::vector<std::string> cmdLine; 
@@ -32,7 +40,8 @@ namespace bea{
 		//Report the error from an exception, store it in lastError
 		
 		BeaContext();
-	public:
+	
+    public:
 		virtual ~BeaContext();
 		//Call a function in Javascript
 		v8::Handle<v8::Value> call(const char* fnName, int argc, v8::Handle<v8::Value> argv[]);
@@ -50,7 +59,7 @@ namespace bea{
 			return m_context;
 		}
 
-		std::string getLastError() {
+		exception getLastError() {
 			return lastError;
 		}
 
@@ -81,14 +90,13 @@ namespace bea{
 		
 		//Execute a string of javascript
 		static v8::Handle<v8::Value> execute(v8::Handle<v8::String> script, v8::Handle<v8::String> fileName);
+		static v8::Handle<v8::Value> execute(v8::Handle<v8::String> script);
 		
 		static v8::Handle<v8::Value> yield(const v8::Arguments& args);
 		static v8::Handle<v8::Value> collectGarbage(const v8::Arguments& args);
 
 		virtual void expose() {}
 		v8::Handle<v8::Value> executeScript(const char* fileName);
-		//Init the script context and expose the objects offered by IBeaExposer
-		bool init();
 
 	public:
 		inline _BeaScript(){
@@ -101,7 +109,10 @@ namespace bea{
 		//Load, compile and execute a script 
 		bool loadScript(const char* fileName);
 
+		//Init the script context and expose the objects offered by IBeaExposer
+		bool init(const char* loaderPath = "./loader.js");
 
+		bool executeSource(const char* source);
 
 	};
 

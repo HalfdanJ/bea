@@ -335,6 +335,24 @@ namespace bea{
 			return v8::Uint32::New(val);
 		}
 	};
+    //signed char
+	template<>
+	struct Convert<signed char>{
+		static inline bool Is(v8::Handle<v8::Value> v){
+			return !v.IsEmpty() && v->IsUint32();
+		}
+        
+		static inline signed char FromJS(v8::Handle<v8::Value> v, int nArg){
+			static const char* msg = "Integer(byte) value expected";
+			if (!Is(v)) BEATHROW();
+            
+			return (signed char)v->Uint32Value();
+		}
+        
+		static inline v8::Handle<v8::Value> ToJS(const signed char& val){
+			return v8::Int32::New(val);
+		}
+	};
 	//short
 	template <>
 	struct Convert<short>{
